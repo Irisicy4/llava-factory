@@ -39,7 +39,7 @@ deepspeed --master_port 29501 tinyllava/train/train.py \
     --tune_type_vision_tower frozen \
     --tune_vision_tower_from_layer 0 \
     --tune_type_connector full \
-    --output_dir ./work_dirs/llava-${LLM_VARIANT}-${VT_VARIANT}-${VERSION}-pretrain \
+    --output_dir ./work_dirs/llava-${LLM_VARIANT}-${VT_VARIANT}-${VERSION}-pretrain-cc15m \
     --num_train_epochs 1 \
     --per_device_train_batch_size 32 \
     --per_device_eval_batch_size 4 \
@@ -59,4 +59,5 @@ deepspeed --master_port 29501 tinyllava/train/train.py \
     --lazy_preprocess True \
     --report_to tensorboard \
     --tokenizer_use_fast False \
-    --run_name test
+    --run_name test \
+    --s3_config work_dirs/s3.json

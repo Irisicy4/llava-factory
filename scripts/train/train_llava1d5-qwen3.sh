@@ -1,6 +1,7 @@
-DATA_PATH=/mydata1/llava/pretrain/llava_pretrain/images/ #pretrain annotation file path
+DATA_PATH=/mnt/zillion/image/cc_filtered_all3m12m_pretrain_v2.json  #pretrain annotation file path
 FINETUNE_DATA_PATH=/tmp/instance_storage/llava/sft/llava_v1_5_mix665k.json   #finetune annotation file path
-IMAGE_PATH=/mydata1/llava/pretrain/llava_pretrain/images/ #pretrain image dir
+#IMAGE_PATH=/mnt/zillion/image #pretrain image dir
+IMAGE_PATH=s3://image 
 FINETUNE_IMAGE_PATH=/tmp/instance_storage/llava/sft/ #finetune image dir
 
 LLM_VERSION=Qwen/Qwen3-8B # llm path in huggingface
@@ -12,6 +13,6 @@ VERSION=base #experiment name for recording different runnings
 TRAIN_RECIPE=common #training recipes, other options are: lora, qlora
 MODEL_MAX_LENGTH=2048 #max model length for llm
 
-
-# bash scripts/train/pretrain.sh "$DATA_PATH" "$IMAGE_PATH" "$LLM_VERSION" "$VT_VERSION" "$VT_VERSION2" "$CN_VERSION" "$VERSION" "$TRAIN_RECIPE" "$MODEL_MAX_LENGTH"
-bash scripts/train/finetune.sh "$FINETUNE_DATA_PATH" "$FINETUNE_IMAGE_PATH" "$LLM_VERSION" "$VT_VERSION" "$VT_VERSION2" "$CN_VERSION" "$CONV_VERSION" "$VERSION" "$TRAIN_RECIPE" "$MODEL_MAX_LENGTH"
+export CUDA_VISIBLE_DEVICES=0,1
+bash scripts/train/pretrain.sh "$DATA_PATH" "$IMAGE_PATH" "$LLM_VERSION" "$VT_VERSION" "$VT_VERSION2" "$CN_VERSION" "$VERSION" "$TRAIN_RECIPE" "$MODEL_MAX_LENGTH"
+# bash scripts/train/finetune.sh "$FINETUNE_DATA_PATH" "$FINETUNE_IMAGE_PATH" "$LLM_VERSION" "$VT_VERSION" "$VT_VERSION2" "$CN_VERSION" "$CONV_VERSION" "$VERSION" "$TRAIN_RECIPE" "$MODEL_MAX_LENGTH"

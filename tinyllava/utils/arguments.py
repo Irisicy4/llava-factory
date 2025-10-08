@@ -43,6 +43,7 @@ class DataArguments:
     image_folder: Optional[str] = field(default=None)
     image_aspect_ratio: str = 'square'
     conv_version: str = 'pretrain'
+    s3_config: Optional[str] = field(default=None)
 
 
 @dataclass

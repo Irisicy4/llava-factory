@@ -16,8 +16,27 @@ import torch
 from torch.utils.data import Dataset
 import random
 
+import boto3
+from io import BytesIO
+import requests
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
+
+def load_image(image_file, s3_client=None):
+    if image_file.startswith("http") or image_file.startswith("https"):
+        response = requests.get(image_file)
+        image = Image.open(BytesIO(response.content)).convert("RGB")
+    elif image_file.startswith("s3://"):
+        bucket_name = image_file.split("s3://")[1].split("/")[0]
+        image_file = "/".join(image_file.split("s3://")[1].split("/")[1:])
+        response = s3_client.get_object(Bucket=bucket_name, Key=image_file)
+        image_data = response['Body'].read()
+        
+        image = Image.open(BytesIO(image_data)).convert('RGB')
+    else:
+        image = Image.open(image_file).convert("RGB")
+
+    return image
 
 class LazySupervisedDataset(Dataset):
     """Dataset for supervised fine-tuning."""
@@ -33,6 +52,16 @@ class LazySupervisedDataset(Dataset):
         self.data_args = data_args
         self.text_preprocess = TextPreprocess(tokenizer, data_args.conv_version)
         self.image_preprocess = ImagePreprocess(data_args.image_processor, data_args)
+
+        self.s3_client = None
+        if self.data_args.s3_config is not None:
+            s3_config = json.load(open(self.data_args.s3_config, "r"))
+            self.s3_client = boto3.client(
+                service_name='s3',
+                endpoint_url=s3_config['endpoint_url'],
+                aws_access_key_id=s3_config['aws_access_key_id'],
+                aws_secret_access_key=s3_config['aws_secret_access_key'],
+            )
 
     def __len__(self):
         return len(self.list_data_dict)
@@ -70,11 +99,13 @@ class LazySupervisedDataset(Dataset):
                     images = sources['image']
                 # image is a list of image files
                 data_dict['image'] = []
+
+                image_folder = self.data_args.image_folder
                 for image_file in images:
-                    image_folder = self.data_args.image_folder
-                    image = Image.open(os.path.join(image_folder, image_file)).convert('RGB')
+                    image = load_image(os.path.join(image_folder, image_file), self.s3_client)
                     image = self.image_preprocess(image)
                     data_dict['image'].append(image)
+
             except Exception as e:
                 traceback.print_exc()
                 backup_idx = random.randint(0, len(self.list_data_dict) - 1)
