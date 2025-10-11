@@ -1,4 +1,4 @@
-DATA_PATH=/mnt/zillion/image/cc_filtered_all3m12m_pretrain_v2.json  #pretrain annotation file path
+DATA_PATH=s3://image/cc_filtered_all3m12m_pretrain_v2.json  #pretrain annotation file path
 FINETUNE_DATA_PATH=/tmp/instance_storage/llava/sft/llava_v1_5_mix665k.json   #finetune annotation file path
 #IMAGE_PATH=/mnt/zillion/image #pretrain image dir
 IMAGE_PATH=s3://image 
