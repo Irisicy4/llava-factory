@@ -19,6 +19,15 @@ MODEL_MAX_LENGTH="$9"
 VT_VARIANT="${VT_VERSION#*/}"
 LLM_VARIANT="${LLM_VERSION#*/}"
 
+USE_HF_STREAMING=${USE_HF_STREAMING:-False}
+HF_DATASET_NAME=${HF_DATASET_NAME:-""}
+HF_DATASET_CONFIG=${HF_DATASET_CONFIG:-""}
+HF_DATASET_SPLIT=${HF_DATASET_SPLIT:-train}
+HF_DATA_FILES=${HF_DATA_FILES:-""}
+HF_CONVERSATION_COLUMN=${HF_CONVERSATION_COLUMN:-conversations}
+HF_IMAGE_COLUMN=${HF_IMAGE_COLUMN:-image}
+HF_IMAGE_PATH_COLUMN=${HF_IMAGE_PATH_COLUMN:-image_path}
+
 deepspeed --master_port 29501 tinyllava/train/train.py \
     --deepspeed ./scripts/zero3.json \
     --data_path  $DATA_PATH\
@@ -60,4 +69,12 @@ deepspeed --master_port 29501 tinyllava/train/train.py \
     --report_to tensorboard \
     --tokenizer_use_fast False \
     --run_name test \
-    --s3_config work_dirs/s3.json
+    --s3_config work_dirs/s3.json \
+    --use_hf_streaming $USE_HF_STREAMING \
+    --hf_dataset_name "$HF_DATASET_NAME" \
+    --hf_dataset_config "$HF_DATASET_CONFIG" \
+    --hf_dataset_split "$HF_DATASET_SPLIT" \
+    --hf_data_files "$HF_DATA_FILES" \
+    --hf_conversation_column "$HF_CONVERSATION_COLUMN" \
+    --hf_image_column "$HF_IMAGE_COLUMN" \
+    --hf_image_path_column "$HF_IMAGE_PATH_COLUMN"

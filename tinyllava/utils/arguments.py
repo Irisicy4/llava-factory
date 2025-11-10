@@ -44,6 +44,22 @@ class DataArguments:
     image_aspect_ratio: str = 'square'
     conv_version: str = 'pretrain'
     s3_config: Optional[str] = field(default=None)
+    use_hf_streaming: bool = field(default=False,
+                                   metadata={"help": "Enable Hugging Face streaming datasets."})
+    hf_dataset_name: Optional[str] = field(default=None,
+                                           metadata={"help": "Hugging Face dataset identifier (e.g. org/name)."})
+    hf_dataset_config: Optional[str] = field(default=None,
+                                             metadata={"help": "Optional dataset config name."})
+    hf_dataset_split: str = field(default="train",
+                                  metadata={"help": "Dataset split to stream."})
+    hf_data_files: Optional[str] = field(default=None,
+                                         metadata={"help": "Optional data files glob for load_dataset."})
+    hf_conversation_column: str = field(default="conversations",
+                                        metadata={"help": "Column containing chat turns."})
+    hf_image_column: str = field(default="image",
+                                 metadata={"help": "Column containing image payloads."})
+    hf_image_path_column: Optional[str] = field(default="image_path",
+                                                metadata={"help": "Column containing image paths for fallback loading."})
 
 
 @dataclass

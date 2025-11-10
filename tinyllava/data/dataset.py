@@ -1,7 +1,7 @@
 import copy
 from dataclasses import dataclass
 import json
-from typing import Dict, Sequence, TYPE_CHECKING
+from typing import Any, Dict, Iterator, List, Optional, Sequence, TYPE_CHECKING, Union
 from PIL import Image, ImageFile
 import os
 
@@ -13,12 +13,14 @@ from ..utils.constants import *
 import traceback
 import transformers
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, IterableDataset
 import random
 
 import boto3
 from io import BytesIO
 import requests
+
+from datasets import load_dataset
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
@@ -41,6 +43,34 @@ def load_image(image_file, s3_client=None):
     return image
 
 
+def build_s3_client(data_args: DataArguments):
+    if getattr(data_args, "s3_config", None) is None:
+        return None
+    s3_config = json.load(open(data_args.s3_config, "r"))
+    return boto3.client(
+        service_name='s3',
+        endpoint_url=s3_config['endpoint_url'],
+        aws_access_key_id=s3_config['aws_access_key_id'],
+        aws_secret_access_key=s3_config['aws_secret_access_key'],
+    )
+
+
+def zero_image_tensor(data_args: DataArguments):
+    crop_size = getattr(data_args.image_processor, 'crop_size',
+                        getattr(data_args.image_processor, 'size'))
+    height = crop_size['height'] if isinstance(crop_size, dict) else crop_size
+    width = crop_size['width'] if isinstance(crop_size, dict) else crop_size
+    return torch.zeros(3, height, width)
+
+
+def ensure_list(value):
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        return list(value)
+    return [value]
+
+
 class LazySupervisedDataset(Dataset):
     """Dataset for supervised fine-tuning."""
 
@@ -55,15 +85,7 @@ class LazySupervisedDataset(Dataset):
         self.image_preprocess = ImagePreprocess(data_args.image_processor, data_args)
 
         # --- setup S3 client if provided ---
-        self.s3_client = None
-        if self.data_args.s3_config is not None:
-            s3_config = json.load(open(self.data_args.s3_config, "r"))
-            self.s3_client = boto3.client(
-                service_name='s3',
-                endpoint_url=s3_config['endpoint_url'],
-                aws_access_key_id=s3_config['aws_access_key_id'],
-                aws_secret_access_key=s3_config['aws_secret_access_key'],
-            )
+        self.s3_client = build_s3_client(self.data_args)
 
         # --- load data_path JSON from local, HTTP, or S3 ---
         if data_path.startswith("http://") or data_path.startswith("https://"):
@@ -133,10 +155,126 @@ class LazySupervisedDataset(Dataset):
                 return self.__getitem__(backup_idx)
 
         elif self.data_args.is_multimodal:
-            crop_size = getattr(self.data_args.image_processor, 'crop_size', getattr(self.data_args.image_processor, 'size'))
-            data_dict['image'] = [torch.zeros(3, crop_size['height'], crop_size['width'])]
+            data_dict['image'] = [zero_image_tensor(self.data_args)]
 
         return data_dict
+
+
+class StreamingHFDataset(IterableDataset):
+    """Streaming dataset backed by Hugging Face datasets (Parquet or hub-hosted)."""
+
+    def __init__(self,
+                 tokenizer: transformers.PreTrainedTokenizer,
+                 data_args: DataArguments):
+        if load_dataset is None:
+            raise ImportError("datasets library is required for streaming mode. Please install `datasets`.")
+        assert data_args.hf_dataset_name or data_args.hf_data_files, \
+            "Provide `hf_dataset_name` or `hf_data_files` for streaming."
+        self.tokenizer = tokenizer
+        self.data_args = data_args
+        self.text_preprocess = TextPreprocess(tokenizer, data_args.conv_version)
+        self.image_preprocess = ImagePreprocess(data_args.image_processor, data_args)
+        self.s3_client = build_s3_client(self.data_args)
+
+        dataset_kwargs = dict(
+            path=data_args.hf_dataset_name if data_args.hf_dataset_name else "parquet",
+            split=data_args.hf_dataset_split,
+            streaming=True
+        )
+        if data_args.hf_dataset_config:
+            dataset_kwargs["name"] = data_args.hf_dataset_config
+        if data_args.hf_data_files:
+            dataset_kwargs["data_files"] = data_args.hf_data_files
+        self.dataset = load_dataset(**dataset_kwargs)
+
+    def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
+        for raw_sample in self.dataset:
+            try:
+                conversations = raw_sample.get(self.data_args.hf_conversation_column)
+                if conversations is None:
+                    continue
+                if isinstance(conversations, str):
+                    conversations = json.loads(conversations)
+                data_dict = self.text_preprocess(copy.deepcopy(conversations))
+            except Exception as err:
+                traceback.print_exc()
+                print(f"[StreamingHFDataset] skipping sample due to text preprocessing error: {err}")
+                continue
+
+            images = self._prepare_images(raw_sample)
+            if images:
+                data_dict['image'] = images
+            elif self.data_args.is_multimodal:
+                data_dict['image'] = [zero_image_tensor(self.data_args)]
+            yield data_dict
+
+    def _prepare_images(self, sample: Dict[str, Any]) -> List[torch.Tensor]:
+        processed_images: List[torch.Tensor] = []
+        image_entries = sample.get(self.data_args.hf_image_column)
+        image_paths = sample.get(self.data_args.hf_image_path_column)
+
+        entries_list = ensure_list(image_entries)
+        paths_list = ensure_list(image_paths)
+
+        max_len = max(len(entries_list), len(paths_list))
+        if max_len == 0:
+            return processed_images
+        if len(entries_list) == 0:
+            entries_list = [None] * max_len
+        if len(paths_list) == 0:
+            paths_list = [None] * max_len
+
+        for idx in range(max_len):
+            image_obj = entries_list[idx] if idx < len(entries_list) else None
+            path_obj = paths_list[idx] if idx < len(paths_list) else None
+            pil_image = self._resolve_image(image_obj, path_obj)
+            if pil_image is None:
+                continue
+            try:
+                processed_images.append(self.image_preprocess(pil_image))
+            except Exception as err:
+                traceback.print_exc()
+                print(f"[StreamingHFDataset] skipping image idx {idx} due to preprocessing error: {err}")
+        return processed_images
+
+    def _resolve_image(self, image_entry: Any, path_entry: Optional[Union[str, Dict[str, Any]]]):
+        if isinstance(image_entry, Image.Image):
+            return image_entry
+        if isinstance(image_entry, dict):
+            if image_entry.get('bytes') is not None:
+                return Image.open(BytesIO(image_entry['bytes'])).convert("RGB")
+            if image_entry.get('path'):
+                resolved_path = self._resolve_path(image_entry['path'])
+                return self._load_image_from_path(resolved_path)
+        if isinstance(image_entry, str):
+            resolved = self._resolve_path(image_entry)
+            return self._load_image_from_path(resolved)
+        if path_entry:
+            if isinstance(path_entry, dict) and path_entry.get('path'):
+                resolved_path = self._resolve_path(path_entry['path'])
+            else:
+                resolved_path = self._resolve_path(path_entry)
+            return self._load_image_from_path(resolved_path)
+        return None
+
+    def _resolve_path(self, path: Optional[str]) -> Optional[str]:
+        if path is None:
+            return None
+        if path.startswith("http://") or path.startswith("https://") or path.startswith("s3://"):
+            return path
+        if self.data_args.image_folder:
+            return os.path.join(self.data_args.image_folder, path)
+        return path
+
+    def _load_image_from_path(self, path: Optional[str]):
+        if path is None:
+            return None
+        try:
+            return load_image(path, self.s3_client)
+        except Exception as err:
+            traceback.print_exc()
+            print(f"[StreamingHFDataset] failed to load image at {path}: {err}")
+            return None
 
 
 @dataclass
@@ -193,9 +331,13 @@ class DataCollatorForSupervisedDataset(object):
 def make_supervised_data_module(tokenizer: transformers.PreTrainedTokenizer,
                                 data_args) -> Dict:
     """Make dataset and collator for supervised fine-tuning."""
-    train_dataset = LazySupervisedDataset(tokenizer=tokenizer,
-                                          data_path=data_args.data_path,
-                                          data_args=data_args)
+    if getattr(data_args, "use_hf_streaming", False):
+        train_dataset = StreamingHFDataset(tokenizer=tokenizer,
+                                           data_args=data_args)
+    else:
+        train_dataset = LazySupervisedDataset(tokenizer=tokenizer,
+                                              data_path=data_args.data_path,
+                                              data_args=data_args)
     data_collator = DataCollatorForSupervisedDataset(tokenizer=tokenizer)
     return dict(
         train_dataset=train_dataset,
