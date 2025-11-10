@@ -107,6 +107,17 @@ Here's an example for training a LMM using Phi-2.
 bash scripts/train/train_phi.sh
 ```
 
+##### Train directly from Hugging Face streaming datasets
+
+If your dataset already lives on the Hub (for example [Icey444/llava_v1_5_mix665k](https://huggingface.co/datasets/Icey444/llava_v1_5_mix665k)) you can skip manual JSON/image downloads and stream the embedded PIL images on the fly:
+
+```bash
+pip install datasets
+bash scripts/train/train_llava1d5-qwen3-hf.sh
+```
+
+`train_llava1d5-qwen3-hf.sh` encodes the dataset location directly in `DATA_PATH="HF@<repo>?split=<name>&streaming=true"` (see the script for the exact string). `pretrain-hf.sh` parses that pattern, turns on `--use_hf_dataset`, and points the loader at the embedded `conversations` / `image` columns—no manual `--data_path`, `--image_folder`, or `--s3_config` flags are needed. Samples missing inline image data are simply skipped.
+
 Important hyperparameters used in pretraining and finetuning are provided below.
 
 | Training Stage | Global Batch Size | Learning rate | conv_version |

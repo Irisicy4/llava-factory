@@ -169,7 +169,7 @@ class LazySupervisedDataset(Dataset):
 
 
 class StreamingHFSupervisedDataset(IterableDataset):
-    """IterableDataset that streams training samples directly from Hugging Face datasets."""
+    """IterableDataset that streams training samples directly from Hugging Face datasets using inline image payloads."""
 
     def __init__(self,
                  tokenizer: transformers.PreTrainedTokenizer,
@@ -224,10 +224,9 @@ class StreamingHFSupervisedDataset(IterableDataset):
                 continue
 
             images = self._prepare_images(sample)
-            if images:
-                data_dict['image'] = images
-            elif self.data_args.is_multimodal:
-                data_dict['image'] = [zero_image_tensor(self.data_args)]
+            if not images:
+                continue
+            data_dict['image'] = images
             yield data_dict
 
     def set_epoch(self, epoch: int):
@@ -235,9 +234,6 @@ class StreamingHFSupervisedDataset(IterableDataset):
             self.dataset.set_epoch(epoch)
 
     def _prepare_images(self, sample: Dict[str, Any]) -> List[torch.Tensor]:
-        if self.data_args.hf_image_column is None:
-            return []
-
         entries = ensure_list(sample.get(self.data_args.hf_image_column))
         if not entries:
             return []

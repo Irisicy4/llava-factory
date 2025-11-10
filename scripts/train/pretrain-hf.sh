@@ -2,20 +2,22 @@
 
 set -euo pipefail
 
-if [ $# -ne 9 ]; then
-    echo "Usage: $0 <IMAGE_PATH> <LLM_VERSION> <VT_VERSION> <VT_VERSION2> <CN_VERSION> <CONV_VERSION> <VERSION> <TRAIN_RECIPE> <MODEL_MAX_LENGTH>"
+if [ $# -ne 10 ]; then
+    echo "Usage: $0 <DATA_PATH> <IMAGE_PATH> <LLM_VERSION> <VT_VERSION> <VT_VERSION2> <CN_VERSION> <CONV_VERSION> <VERSION> <TRAIN_RECIPE> <MODEL_MAX_LENGTH>"
     exit 1
 fi
 
-IMAGE_PATH="$1"
-LLM_VERSION="$2"
-VT_VERSION="$3"
-VT_VERSION2="$4"
-CN_VERSION="$5"
-CONV_VERSION="$6"
-VERSION="$7"
-TRAIN_RECIPE="$8"
-MODEL_MAX_LENGTH="$9"
+DATA_PATH_INPUT="$1"
+RAW_IMAGE_PATH="$2"
+IMAGE_PATH="$RAW_IMAGE_PATH"
+LLM_VERSION="$3"
+VT_VERSION="$4"
+VT_VERSION2="$5"
+CN_VERSION="$6"
+CONV_VERSION="$7"
+VERSION="$8"
+TRAIN_RECIPE="$9"
+MODEL_MAX_LENGTH="${10}"
 
 VT_VARIANT="${VT_VERSION#*/}"
 LLM_VARIANT="${LLM_VERSION#*/}"
@@ -28,17 +30,51 @@ HF_DATA_FILES=${HF_DATA_FILES:-""}
 HF_STREAMING=${HF_STREAMING:-True}
 HF_CACHE_DIR=${HF_CACHE_DIR:-""}
 HF_CONVERSATION_COLUMN=${HF_CONVERSATION_COLUMN:-conversations}
-HF_IMAGE_COLUMN=${HF_IMAGE_COLUMN:-image}
+HF_IMAGE_COLUMN=${HF_IMAGE_COLUMN:-}
 HF_SHUFFLE_BUFFER_SIZE=${HF_SHUFFLE_BUFFER_SIZE:-4096}
 HF_SHUFFLE_SEED=${HF_SHUFFLE_SEED:-42}
 RUN_NAME=${RUN_NAME:-hf_stream}
-S3_CONFIG=${S3_CONFIG:-work_dirs/s3.json}
-DATA_PATH=${DATA_PATH:-}
 
 DATA_PATH_ARG=()
-if [ -n "$DATA_PATH" ]; then
+if [ -n "$DATA_PATH_INPUT" ]; then
+    if [[ "$DATA_PATH_INPUT" == HF@* ]]; then
+        USE_HF_DATASET=True
+        hf_spec="${DATA_PATH_INPUT#HF@}"
+        dataset_id="$hf_spec"
+        query=""
+        if [[ "$hf_spec" == *\?* ]]; then
+            dataset_id="${hf_spec%%\?*}"
+            query="${hf_spec#*\?}"
+        fi
+        HF_DATASET_NAME="$dataset_id"
+        if [ -n "$query" ]; then
+            IFS='&' read -ra params <<< "$query"
+            for param in "${params[@]}"; do
+                [[ -z "$param" ]] && continue
+                key="${param%%=*}"
+                value="${param#*=}"
+                case "$key" in
+                    split) HF_DATASET_SPLIT="$value" ;;
+                    config) HF_DATASET_CONFIG="$value" ;;
+                    files) HF_DATA_FILES="$value" ;;
+                    streaming) HF_STREAMING="$value" ;;
+                    cache_dir) HF_CACHE_DIR="$value" ;;
+                esac
+            done
+        fi
+    else
+        DATA_PATH_ARG=(--data_path "$DATA_PATH_INPUT")
+    fi
+elif [ -n "${DATA_PATH:-}" ]; then
     DATA_PATH_ARG=(--data_path "$DATA_PATH")
 fi
+
+if [[ "$RAW_IMAGE_PATH" == HF@* ]]; then
+    HF_IMAGE_COLUMN="${RAW_IMAGE_PATH#HF@}"
+    IMAGE_PATH="."
+fi
+
+HF_IMAGE_COLUMN=${HF_IMAGE_COLUMN:-image}
 
 deepspeed --master_port 29501 tinyllava/train/train.py \
     --deepspeed ./scripts/zero3.json \
@@ -81,7 +117,6 @@ deepspeed --master_port 29501 tinyllava/train/train.py \
     --report_to tensorboard \
     --tokenizer_use_fast False \
     --run_name $RUN_NAME \
-    --s3_config "$S3_CONFIG" \
     --use_hf_dataset $USE_HF_DATASET \
     --hf_dataset_name "$HF_DATASET_NAME" \
     --hf_dataset_config "$HF_DATASET_CONFIG" \
