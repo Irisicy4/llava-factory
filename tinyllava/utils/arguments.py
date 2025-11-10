@@ -44,6 +44,28 @@ class DataArguments:
     image_aspect_ratio: str = 'square'
     conv_version: str = 'pretrain'
     s3_config: Optional[str] = field(default=None)
+    use_hf_dataset: bool = field(default=False,
+                                 metadata={"help": "Enable Hugging Face streaming dataset pipeline."})
+    hf_dataset_name: Optional[str] = field(default=None,
+                                           metadata={"help": "Hugging Face dataset identifier (e.g. Icey444/llava_v1_5_mix665k)."})
+    hf_dataset_config: Optional[str] = field(default=None,
+                                             metadata={"help": "Optional dataset config name."})
+    hf_dataset_split: str = field(default="train",
+                                  metadata={"help": "Split to load from the dataset."})
+    hf_data_files: Optional[str] = field(default=None,
+                                         metadata={"help": "Optional data-files pattern (for local Parquet/JSON/etc.)."})
+    hf_streaming: bool = field(default=True,
+                               metadata={"help": "Whether to enable streaming=True when loading the dataset."})
+    hf_conversation_column: str = field(default="conversations",
+                                        metadata={"help": "Column containing serialized conversations."})
+    hf_image_column: str = field(default="image",
+                                 metadata={"help": "Column containing images stored directly in the dataset rows."})
+    hf_cache_dir: Optional[str] = field(default=None,
+                                        metadata={"help": "Cache directory for datasets.load_dataset."})
+    hf_shuffle_buffer_size: int = field(default=2048,
+                                        metadata={"help": "Buffer size for IterableDataset.shuffle when streaming."})
+    hf_shuffle_seed: int = field(default=42,
+                                 metadata={"help": "Seed for IterableDataset.shuffle when streaming."})
 
 
 @dataclass

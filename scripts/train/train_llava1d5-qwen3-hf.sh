@@ -1,0 +1,45 @@
+#!/bin/bash
+
+set -euo pipefail
+
+# Core model/image configuration
+IMAGE_PATH=s3://image
+LLM_VERSION=Qwen/Qwen3-8B
+VT_VERSION=openai/clip-vit-large-patch14-336
+VT_VERSION2=""
+CN_VERSION=mlp2x_gelu
+CONV_VERSION=qwen2_instruct
+VERSION=hf_stream
+TRAIN_RECIPE=common
+MODEL_MAX_LENGTH=2048
+RUN_NAME=hf_stream
+
+# Hugging Face dataset configuration
+USE_HF_DATASET=True
+HF_DATASET_NAME=Icey444/llava_v1_5_mix665k
+HF_DATASET_CONFIG=""
+HF_DATASET_SPLIT=train
+HF_DATA_FILES=""
+HF_STREAMING=True
+HF_CACHE_DIR=""
+HF_CONVERSATION_COLUMN=conversations
+HF_IMAGE_COLUMN=image
+HF_SHUFFLE_BUFFER_SIZE=4096
+HF_SHUFFLE_SEED=2025
+S3_CONFIG=work_dirs/s3.json
+
+export CUDA_VISIBLE_DEVICES=0,1
+export USE_HF_DATASET HF_DATASET_NAME HF_DATASET_CONFIG HF_DATASET_SPLIT HF_DATA_FILES \
+       HF_STREAMING HF_CACHE_DIR HF_CONVERSATION_COLUMN HF_IMAGE_COLUMN \
+       HF_SHUFFLE_BUFFER_SIZE HF_SHUFFLE_SEED RUN_NAME S3_CONFIG
+
+bash scripts/train/pretrain-hf.sh \
+    "$IMAGE_PATH" \
+    "$LLM_VERSION" \
+    "$VT_VERSION" \
+    "$VT_VERSION2" \
+    "$CN_VERSION" \
+    "$CONV_VERSION" \
+    "$VERSION" \
+    "$TRAIN_RECIPE" \
+    "$MODEL_MAX_LENGTH"
